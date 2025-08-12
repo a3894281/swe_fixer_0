@@ -1,5 +1,6 @@
 .reference/
 .temp/
+problems/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

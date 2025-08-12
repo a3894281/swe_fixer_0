@@ -1,7 +1,52 @@
 import os
 import requests
-from coding.schemas import Patch, Edit
+from pydantic import BaseModel
 from abc import ABC, abstractmethod
+from enum import Enum
+
+
+class Role(Enum):
+    SYSTEM = "system"
+    USER = "user"
+    ASSISTANT = "assistant"
+    TOOL = "tool"
+
+
+class BaseMessage(BaseModel):
+    role: Role
+    content: str
+
+    class Config:
+        use_enum_values = True
+
+
+class ToolCallMessage(BaseMessage):
+    role: Role = Role.TOOL
+    tool_call_id: str
+    name: str
+    content: str
+
+
+class Edit(BaseModel):
+    file_name: str
+    line_number: int
+    line_content: str
+    new_line_content: str
+
+
+class Patch(BaseModel):
+    edits: list[Edit]
+
+
+class ToolCall(BaseModel):
+    name: str
+    args: dict
+
+
+class Response(BaseModel):
+    result: str
+    total_tokens: int
+    tool_calls: list[ToolCall] | None = None
 
 
 # if host ip is localhost itll fail, need to get docker host ip
@@ -14,10 +59,12 @@ class LLMClient:
     ):
         """Initialize LLM client with API server URL"""
         # Get values from environment if not provided
-        self.base_url = (base_url or f"http://{os.getenv('HOST_IP', 'localhost')}:25000").rstrip("/")
+        self.base_url = (
+            base_url or f"http://{os.getenv('HOST_IP', 'localhost')}:25000"
+        ).rstrip("/")
         self.api_key = api_key or os.getenv("OPENROUTER_API_KEY", "")
         self.auth_key = auth_key or os.getenv("LLM_AUTH_KEY", "")
-        
+
         # Initialize the API key with the LLM service
         self._init_key()
 
@@ -26,30 +73,28 @@ class LLMClient:
         if not self.api_key:
             print("⚠️ No OPENROUTER_API_KEY provided, skipping initialization")
             return
-        
+
         if not self.auth_key:
             print("⚠️ No LLM_AUTH_KEY provided, skipping initialization")
             return
-            
+
         try:
             print(f"🔑 Initializing API key with LLM service at {self.base_url}")
-            
+
             # Prepare the initialization payload
             init_payload = {"key": self.api_key}
-            
+
             # Add auth key as header (same format as manager.py)
             headers = {"Authorization": self.auth_key}
-            
+
             response = requests.post(
-                f"{self.base_url}/init", 
-                json=init_payload,
-                headers=headers
+                f"{self.base_url}/init", json=init_payload, headers=headers
             )
             response.raise_for_status()
-            
+
             result = response.json()
             print(f"✅ LLM service initialized: {result.get('message', 'Success')}")
-            
+
         except requests.exceptions.RequestException as e:
             print(f"❌ Failed to initialize LLM service: {e}")
             # Don't raise here - let the system continue and handle errors during actual calls
@@ -87,6 +132,29 @@ class LLMClient:
 
         result = response.json()
         return result["result"], result["total_tokens"]
+
+    def call(
+        self,
+        messages: list[BaseMessage],
+        tools: list[dict] = [],
+        temperature: float = 0.7,
+        max_tokens: int = 16384,
+        model: str = "gpt-4o",
+    ) -> Response:
+        payload = {
+            "messages": [message.model_dump() for message in messages],
+            "tools": tools,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "llm_name": model,
+            "api_key": self.api_key,
+        }
+
+        response = requests.post(f"{self.base_url}/call", json=payload)
+        response.raise_for_status()
+
+        result = response.json()
+        return Response(**result)
 
     def embed(self, query: str) -> list[float]:
         """

@@ -111,10 +111,10 @@ if __name__ == "__main__":
     # context = Context(**context_dict)
     # task = SWEBenchTask(llm=None, context=context, use_remote=False)
 
-    # with open("task.pkl", "wb") as f:
+    # with open(f"problems/task_{task.row["instance_id"]}.pkl", "wb") as f:
     #     pkl.dump(task, f)
 
-    with open("task.pkl", "rb") as f:
+    with open("problems/task_django__django-13033.pkl", "rb") as f:
         task = pkl.load(f)
 
     swe = SWE()

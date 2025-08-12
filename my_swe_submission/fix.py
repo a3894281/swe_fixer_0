@@ -44,7 +44,18 @@ class ContextAwareCodeFixer:
         Extract code chunks containing keywords with rich context for reliable identification.
         """
         lines = content.splitlines()
-        keyword_lower = [kw.lower() for kw in keywords]
+        # Expand keywords: split on non-alphanumeric and camelCase to improve recall
+        def _split_kw(kw: str) -> list[str]:
+            parts = re.split(r"[^a-zA-Z0-9]", kw)
+            camel_parts = re.sub(r'([a-z])([A-Z])', r"\1 \2", kw).split()
+            return [p.lower() for p in parts + camel_parts if p]
+
+        expanded_keywords: set[str] = set()
+        for kw in keywords:
+            expanded_keywords.update(_split_kw(kw))
+            expanded_keywords.add(kw.lower())
+
+        keyword_lower = list(expanded_keywords)
 
         # Find function/class blocks using AST when possible
         try:
@@ -372,11 +383,9 @@ FIXED CODE:"""
             original_lines = len(original.splitlines())
             fixed_lines = len(fixed.splitlines())
             
-            # Reject if we removed more than 70% of content (likely error)
-            # But allow significant additions (more lines in fixed than original)
-            if fixed_lines < original_lines * 0.3 and fixed_lines < original_lines:
-                print(f"   ❌ Validation failed: Too much content removed ({fixed_lines} vs {original_lines} lines)")
-                return False
+            # Allow shorter replacements when we specifically requested minimal diffs
+            # Heuristic: if fixed code still contains at least one function/class definition, assume fine.
+            # (We already parse definitions below.)
                 
             # Check that function/class definitions are preserved
             original_defs = re.findall(r'^(def |class |async def )', original, re.MULTILINE)
