@@ -1,27 +1,25 @@
-from dotenv import load_dotenv
-
-load_dotenv("../../../.env", override=False)  # Don't override existing env vars
-CHUTES_ONLY = False
 import os
 import traceback
-os.environ["OPENAI_BASE_URL"] = "https://openrouter.ai/api/v1"
+from dotenv import load_dotenv
 import asyncio
 from fastapi import FastAPI, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Optional, Dict, List
 import json
 import aiohttp
+import openai
+from langchain_openai import OpenAIEmbeddings
+
+from coding.helpers.chutes import Chutes
+
+load_dotenv()  # Don't override existing env vars
+CHUTES_ONLY = False
+
+os.environ["OPENAI_BASE_URL"] = "https://openrouter.ai/api/v1"
 
 # ------------------------------
 #    Import Provider Libraries
 # ------------------------------
-import openai
-import anthropic
-from google import genai
-from google.genai import types
-from langchain_openai import OpenAIEmbeddings
-
-from coding.helpers.chutes import Chutes
 
 key_cost: Dict[str, int] = {}
 current_key: Optional[str] = None
@@ -83,6 +81,7 @@ class ToolCall(BaseModel):
     name: str
     args: dict
 
+
 class LLMResponse(BaseModel):
     result: str
     total_tokens: int
@@ -107,14 +106,13 @@ class BatchEmbeddingResponse(BaseModel):
     vectors: List[List[float]]
 
 
-class BatchEmbeddingResponse(BaseModel):
-    vectors: List[List[float]]
-
 class CostRequest(BaseModel):
     api_key: str
 
+
 class ResetRequest(BaseModel):
     api_key: str
+
 
 # ------------------------------
 #       Auth Dependency
@@ -143,25 +141,28 @@ async def reset_cost(request: ResetRequest, auth_key: str = Depends(verify_auth)
     del key_cost[request.api_key]
     return {"message": f"Reset token count for key {request.api_key}"}
 
+
 @app.post("/clear")
 async def clear_cost(auth_key: str = Depends(verify_auth)):
     key_cost.clear()
     return {"message": "Cleared token count for all keys"}
 
+
 @app.get("/cost")
 async def get_cost(request: CostRequest):
     return {"key": request.api_key, "cost": key_cost[request.api_key]}
+
 
 async def get_generation_stats(response_id: str, api_key: str):
     headers = {"Authorization": f"Bearer {api_key}"}
     retries = 0
     max_retries = 3
-    
+
     while retries < max_retries:
         async with aiohttp.ClientSession() as session:
             async with session.get(
-                f'https://openrouter.ai/api/v1/generation?id={response_id}',
-                headers=headers
+                f"https://openrouter.ai/api/v1/generation?id={response_id}",
+                headers=headers,
             ) as response:
                 if response.status == 404:
                     retries += 1
@@ -169,8 +170,9 @@ async def get_generation_stats(response_id: str, api_key: str):
                         return None
                     await asyncio.sleep(0.5)
                     continue
-                return (await response.json())['data']
+                return (await response.json())["data"]
     return None
+
 
 async def call_openai(
     query: Optional[str] = None,
@@ -182,12 +184,22 @@ async def call_openai(
     api_key: str = None,
 ):
     print("Calling OpenAI", flush=True)
-    print({"query": query, "messages": messages, "tools": tools, "model": model, "temperature": temperature, "max_tokens": max_tokens, "api_key": api_key})
-    
+    print(
+        {
+            "query": query,
+            "messages": messages,
+            "tools": tools,
+            "model": model,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "api_key": api_key,
+        }
+    )
+
     if not api_key:
         print("No API key provided")
         return {"content": "", "usage": {"total_tokens": 0}, "tool_calls": None}
-    
+
     # Prepare arguments, conditionally adding tools if they exist
     kwargs = {
         "model": model,
@@ -196,64 +208,77 @@ async def call_openai(
         "max_tokens": max_tokens,
         "extra_body": {"provider": {"order": ["Anthropic"]}},
     }
-    
+
     # Only add tools if the list is non-empty to avoid validation errors
     if tools and len(tools) > 0:
         kwargs["tools"] = tools
-    
+
     try:
         # Create an async client for OpenAI
         async_client = openai.AsyncOpenAI(api_key=api_key)
-        
+
         # Use the streaming API to get the response
         full_content = ""
         final_tool_calls = {}
         total_tokens = 0
         response_id = None
-        
-        async for chunk in await async_client.chat.completions.create(stream=True, **kwargs):
+
+        async for chunk in await async_client.chat.completions.create(
+            stream=True, **kwargs
+        ):
             # print(chunk, flush=True)
-            if not response_id and hasattr(chunk, 'id'):
+            if not response_id and hasattr(chunk, "id"):
                 response_id = chunk.id
-                
+
             if chunk.choices and chunk.choices[0].delta.content:
                 content = chunk.choices[0].delta.content
                 full_content += content
-            
+
             # Handle tool calls
-            if chunk.choices and hasattr(chunk.choices[0].delta, 'tool_calls') and chunk.choices[0].delta.tool_calls:
+            if (
+                chunk.choices
+                and hasattr(chunk.choices[0].delta, "tool_calls")
+                and chunk.choices[0].delta.tool_calls
+            ):
                 for tool_call in chunk.choices[0].delta.tool_calls:
                     index = tool_call.index
-                    if tool_call.type == 'function':
+                    if tool_call.type == "function":
                         if index not in final_tool_calls:
                             final_tool_calls[index] = {
                                 "id": tool_call.id,
                                 "type": "function",
                                 "function": {
                                     "name": tool_call.function.name,
-                                    "arguments": tool_call.function.arguments or ""
-                                }
+                                    "arguments": tool_call.function.arguments or "",
+                                },
                             }
                         elif tool_call.function.arguments:
-                            final_tool_calls[index]["function"]["arguments"] += tool_call.function.arguments
-                            
+                            final_tool_calls[index]["function"]["arguments"] += (
+                                tool_call.function.arguments
+                            )
+
             # if hasattr(chunk, 'usage'):
-                # total_tokens = chunk.usage.total_tokens
-        
+            # total_tokens = chunk.usage.total_tokens
+
         # Convert tool calls to list format
         tool_calls_list = list(final_tool_calls.values()) if final_tool_calls else None
-        
+
         return {
-            "content": full_content, 
-            "usage": {"total_tokens": total_tokens}, 
+            "content": full_content,
+            "usage": {"total_tokens": total_tokens},
             "tool_calls": tool_calls_list,
-            "response_id": response_id
+            "response_id": response_id,
         }
-        
+
     except Exception as e:
         print(f"Error calling OpenAI API: {e}")
         traceback.print_exc()
-        return {"content": f"API Error: {str(e)}", "usage": {"total_tokens": 0}, "tool_calls": None}
+        return {
+            "content": f"API Error: {str(e)}",
+            "usage": {"total_tokens": 0},
+            "tool_calls": None,
+        }
+
 
 async def ainvoke_with_retry(
     model: str,
@@ -266,23 +291,30 @@ async def ainvoke_with_retry(
     initial_delay: int = 1,
     max_tokens: int = 16384,
 ):
-    chutes = Chutes(api_key=os.getenv("CHUTES_API_KEY"), model_timeout=180, create_chute=False)
+    chutes = Chutes(
+        api_key=os.getenv("CHUTES_API_KEY"), model_timeout=180, create_chute=False
+    )
     delay = initial_delay
     last_exception = None
     for attempt in range(max_retries):
         if query and not messages:
             messages = [{"role": "user", "content": query}]
-            
+
         try:
             # Check if model exists in Chutes
             model_exists = await chutes.model_exists_async(model)
             if model_exists:
                 print("Using Chutes for ", model, flush=True)
-                response = await chutes.invoke_async(model, messages, temperature, tools, max_tokens, timeout=60)
+                response = await chutes.invoke_async(
+                    model, messages, temperature, tools, max_tokens, timeout=60
+                )
                 return {"content": response, "usage": {"total_tokens": 0}}
             elif not CHUTES_ONLY:
                 if api_key not in key_cost and os.getenv("TESTING", "false") != "true":
-                    raise HTTPException(status_code=400, detail="The provided API key has not been initialized. Please call /init first.")
+                    raise HTTPException(
+                        status_code=400,
+                        detail="The provided API key has not been initialized. Please call /init first.",
+                    )
                 response = await call_openai(
                     query,
                     messages,
@@ -294,8 +326,10 @@ async def ainvoke_with_retry(
                 )
                 return response
             else:
-                raise Exception(f"Model {model} not found in Chutes and CHUTES_ONLY is set")
-                
+                raise Exception(
+                    f"Model {model} not found in Chutes and CHUTES_ONLY is set"
+                )
+
         except TimeoutError as e:
             print(f"Timeout error: {e}")
             last_exception = e
@@ -306,17 +340,19 @@ async def ainvoke_with_retry(
             else:
                 print("Max retries reached.")
                 raise HTTPException(
-                    status_code=408, 
-                    detail=f"Timeout when calling {model} after {max_retries} attempts"
+                    status_code=408,
+                    detail=f"Timeout when calling {model} after {max_retries} attempts",
                 )
         except Exception as e:
             print("Error in ainvoke_with_retry:", e, "when calling", model)
             traceback.print_exc()
             # Retry on rate-limit or server errors
             # Added check for potential None response or missing keys which might cause errors
-            if isinstance(e, (openai.RateLimitError, openai.APIStatusError)) or \
-            (isinstance(e, IndexError) and "list index out of range" in str(e)) or \
-            "529" in str(e): # Check common retryable error types/codes
+            if (
+                isinstance(e, (openai.RateLimitError, openai.APIStatusError))
+                or (isinstance(e, IndexError) and "list index out of range" in str(e))
+                or "529" in str(e)
+            ):  # Check common retryable error types/codes
                 last_exception = e
                 if attempt < max_retries - 1:
                     print(f"Retrying in {delay} seconds...")
@@ -324,11 +360,11 @@ async def ainvoke_with_retry(
                     delay *= 2
                 else:
                     print("Max retries reached.")
-                    raise # Re-raise the last exception after max retries
+                    raise  # Re-raise the last exception after max retries
             else:
                 print("Non-retryable error encountered.")
-                raise # Re-raise immediately for non-retryable errors
-                
+                raise  # Re-raise immediately for non-retryable errors
+
     if last_exception:
         raise last_exception
     else:
@@ -339,29 +375,31 @@ async def ainvoke_with_retry(
 async def call_llm(request: LLMRequest):
     print("Calling LLM", flush=True)
     try:
-
         # Attempt the requested LLM; fall back to "gpt-4o" if not found.
         requested_llm = request.llm_name
-        max_tokens = models.get("gpt-4o", {}).get("max_tokens", 16384) # Default max_tokens
+        max_tokens = models.get("gpt-4o", {}).get(
+            "max_tokens", 16384
+        )  # Default max_tokens
         if request.llm_name in models:
             model_config = models[request.llm_name]
             # Assuming provider info is part of the model name passed to call_openai now
             # Let's keep requested_llm as the key for models dict for simplicity here.
             # The actual API model name is fetched within call_openai or ainvoke_with_retry based on the key
             # For openrouter, the format is usually "provider/model"
-            requested_llm = f"{model_config['provider']}/{model_config['model']}" # Construct full model name if needed by API
+            requested_llm = f"{model_config['provider']}/{model_config['model']}"  # Construct full model name if needed by API
             max_tokens = model_config["max_tokens"]
         else:
             # Handle case where llm_name is not in models dict - maybe it's a direct model string?
             # We might need a default provider or assume it's openai compatible
-            print(f"Warning: llm_name '{request.llm_name}' not found in configured models. Attempting direct call.")
+            print(
+                f"Warning: llm_name '{request.llm_name}' not found in configured models. Attempting direct call."
+            )
             # If provider isn't specified, how does call_openai know? Let's assume it's openai format or similar
             # Or maybe the name already includes the provider like "openai/gpt-4o"
-            requested_llm = request.llm_name # Use the name directly
-
+            requested_llm = request.llm_name  # Use the name directly
 
         if request.max_tokens:
-            max_tokens = request.max_tokens # Override if provided in request
+            max_tokens = request.max_tokens  # Override if provided in request
 
         response = await ainvoke_with_retry(
             requested_llm,
@@ -376,14 +414,18 @@ async def call_llm(request: LLMRequest):
             response_id = response["response_id"]
             stats = await get_generation_stats(response_id, request.api_key)
             if stats and os.getenv("TESTING", "false") != "true":
-                total_cost = stats['total_cost']
+                total_cost = stats["total_cost"]
                 key_cost[request.api_key] += total_cost
 
         # Process tool calls if present
         tool_calls_response = None
         if response.get("tool_calls"):
             tool_calls_response = [
-                ToolCall(id=tc["id"], name=tc["function"]["name"], args=json.loads(tc["function"]["arguments"]))
+                ToolCall(
+                    id=tc["id"],
+                    name=tc["function"]["name"],
+                    args=json.loads(tc["function"]["arguments"]),
+                )
                 for tc in response["tool_calls"]
             ]
 
@@ -391,14 +433,16 @@ async def call_llm(request: LLMRequest):
         result_content = response.get("content", "") or ""
 
         return LLMResponse(
-            result=result_content, # Use the processed result_content
+            result=result_content,  # Use the processed result_content
             total_tokens=0,
-            cost=key_cost[request.api_key] if request.api_key in key_cost and os.getenv("TESTING", "false") != "true" else 0,
-            tool_calls=tool_calls_response # Pass the processed tool calls
+            cost=key_cost[request.api_key]
+            if request.api_key in key_cost and os.getenv("TESTING", "false") != "true"
+            else 0,
+            tool_calls=tool_calls_response,  # Pass the processed tool calls
         )
     except Exception as e:
         print("Error in call_llm endpoint:", e)
-        traceback.print_exc() # Print full traceback for debugging
+        traceback.print_exc()  # Print full traceback for debugging
         raise HTTPException(status_code=500, detail=str(e))
 
 
