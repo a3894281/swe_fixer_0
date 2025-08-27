@@ -7,7 +7,7 @@ def miner_process(self, synapse: LogicSynapse) -> LogicSynapse:
     The miner process function is called every time the miner receives a request. This function should contain the main logic of the miner.
     """
     logic = {}
-    test_submission_dir = "/root/Projects/code/my_swe_submission"
+    test_submission_dir = "/root/Projects/code/swe_mini_submission"
 
     # Read all files in test-submission directory
     for root, dirs, files in os.walk(test_submission_dir):
