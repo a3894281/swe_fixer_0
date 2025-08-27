@@ -1,124 +1,68 @@
 from swebase import SWEBase
-from coding.schemas import Patch
-from files import load_directory
-from diff import create_patch
-from search import search
-from fix import fix
-import re
+
+from local import LocalEnvironment
+from agent import DefaultAgent
+from model import ModelAdapter
 
 
 class SWE(SWEBase):
-    """🏆 Perfect SWE submission with comprehensive problem-solving pipeline"""
+    """🤖 Enhanced Mini-SWE-Agent with sophisticated logic from check.py"""
 
-    def __call__(self, repo_location: str, issue_description: str) -> Patch:
-        model = "openai/o4-mini-high"
+    def __init__(self):
+        super().__init__()
+        self.step_count = 0
+        self.max_steps = 15  # Reduced to be more efficient
+        self.timeout = 30
+
+    def __call__(self, repo_location: str, issue_description: str) -> str:
         try:
-            # Step 1: Load repository files with smart filtering
-            files = load_directory(repo_location)
-            print(f"✅ Loaded {len(files)} files")
+            # Create model adapter
+            model = ModelAdapter(self.llm, "openai/gpt-5-mini")
 
-            if not files:
-                print("❌ No files found in repository")
-                return Patch(edits=[])
+            # Create environment
+            env = LocalEnvironment(cwd=repo_location)
 
-            # Step 2: Enhanced search for relevant files
-            relevant_files, keywords = search(
-                repo_location, issue_description, self.llm, model
-            )
-            print(f"\n🔍 Relevant files: {relevant_files}")
+            # Create agent with configuration
+            agent = DefaultAgent(model, env)
 
-            if not relevant_files:
-                print("❌ No relevant files found")
-                return Patch(edits=[])
+            # Run the agent
+            agent.run(issue_description)
 
-            # Step 3: Fix
-            fixed_files = fix(
-                files, relevant_files, issue_description, keywords, self.llm, model
-            )
+            # Create patch from the repository changes
+            diff = agent.create_diff(repo_location)
 
-            if not fixed_files:
-                print("❌ No fixes generated, trying alternative approach...")
-
-                fallback_fixed_files = self._apply_fallback_fixes(files, issue_description)
-
-                if not fallback_fixed_files:
-                    return Patch(edits=[])
-
-                fixed_files = fallback_fixed_files
-
-            # Step 5: Create comprehensive patch with validation
-            print("\n📝 Creating patch...")
-
-            patch = create_patch(files, fixed_files)
-            return patch
+            return diff
 
         except Exception as e:
-            print(f"💥 Critical error: {e}")
-            import traceback
-
-            traceback.print_exc()
-            return Patch(edits=[])
-
-    def _apply_fallback_fixes(self, files: dict[str, str], issue_description: str) -> dict[str, str]:
-        """Attempt deterministic fixes for known common SWEBench issues."""
-
-        fallback_files: dict[str, str] = {}
-
-        # Django 5.0 subparser / CommandParser bug
-        if "CommandParser" in issue_description or "add_subparsers" in issue_description:
-            file_path = "django/core/management/base.py"
-            if file_path in files:
-                content = files[file_path]
-
-                # Only attempt patch if method not already present
-                if "def add_subparsers(" not in content:
-                    lines = content.splitlines()
-
-                    # Locate CommandParser class definition
-                    class_idx = next((i for i, line in enumerate(lines) if line.lstrip().startswith("class CommandParser")), None)
-                    if class_idx is not None:
-                        indent = re.match(r"^(\s*)", lines[class_idx]).group(1) + "    "  # one extra indent level
-
-                        method_code = [
-                            f"{indent}def add_subparsers(self, **kwargs):",
-                            f"{indent}    \"\"\"Create subparsers that inherit CommandParser behaviour.\"\"\"",
-                            f"{indent}    import functools",
-                            f"{indent}    kwargs.setdefault('parser_class', functools.partial(CommandParser, called_from_command_line=self.called_from_command_line))",
-                            f"{indent}    return super().add_subparsers(**kwargs)",
-                        ]
-
-                        # Insert method after class definition line
-                        insertion_idx = class_idx + 1
-                        lines = lines[:insertion_idx] + method_code + lines[insertion_idx:]
-
-                        fallback_files[file_path] = "\n".join(lines)
-
-        return fallback_files
+            print(f"❌ Error: {e}")
+            return ""
 
 
-# Enhanced testing and validation section
+# Enhanced testing section
 if __name__ == "__main__":
     from dotenv import load_dotenv
+    import pickle as pkl
+
     from coding.tasks.swe import SWEBenchTask
     from coding.schemas.context import Context
     from coding.datasets.swefull import SWEFullDataset
-    import pickle as pkl
+
+    dataset = SWEFullDataset()
+    context_dict = dataset.get(n=1)
+    context = Context(**context_dict)
+    task = SWEBenchTask(llm=None, context=context, use_remote=False)
 
     load_dotenv()
 
-    # dataset = SWEFullDataset()
-    # context_dict = dataset.get(n=1)
-    # context = Context(**context_dict)
-    # task = SWEBenchTask(llm=None, context=context, use_remote=False)
-
-    # with open(f"problems/task_{task.row["instance_id"]}.pkl", "wb") as f:
+    # print(task.row["instance_id"])
+    # with open(f"./problems/task_{task.row['instance_id']}.pkl", "wb") as f:
     #     pkl.dump(task, f)
 
-    with open("problems/task_django__django-13033.pkl", "rb") as f:
-        task = pkl.load(f)
+    # with open("./problems/task_django__django-11239.pkl", "rb") as f:
+    #     task = pkl.load(f)
 
     swe = SWE()
     response = swe(repo_location=task.repo.path, issue_description=task.query)
 
     score = task.score(response)
-    print(score)
+    print(f"\n🎯 Final Score: {score}")

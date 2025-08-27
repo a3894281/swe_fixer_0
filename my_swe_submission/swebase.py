@@ -27,17 +27,6 @@ class ToolCallMessage(BaseMessage):
     content: str
 
 
-class Edit(BaseModel):
-    file_name: str
-    line_number: int
-    line_content: str
-    new_line_content: str
-
-
-class Patch(BaseModel):
-    edits: list[Edit]
-
-
 class ToolCall(BaseModel):
     name: str
     args: dict
@@ -204,5 +193,5 @@ class SWEBase(ABC):
         self.llm = LLMClient()
 
     @abstractmethod
-    def __call__(self, repo_location: str, issue_description: str) -> Patch:
+    def __call__(self, repo_location: str, issue_description: str) -> str:
         pass
