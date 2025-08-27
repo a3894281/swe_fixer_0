@@ -10,9 +10,6 @@ class SWE(SWEBase):
 
     def __init__(self):
         super().__init__()
-        self.step_count = 0
-        self.max_steps = 15  # Reduced to be more efficient
-        self.timeout = 30
 
     def __call__(self, repo_location: str, issue_description: str) -> str:
         try:
@@ -29,7 +26,7 @@ class SWE(SWEBase):
             agent.run(issue_description)
 
             # Create patch from the repository changes
-            diff = agent.create_diff(repo_location)
+            diff = agent.create_diff()
 
             return diff
 
@@ -41,16 +38,16 @@ class SWE(SWEBase):
 # Enhanced testing section
 if __name__ == "__main__":
     from dotenv import load_dotenv
-    # import pickle as pkl
+    import pickle as pkl
 
-    from coding.tasks.swe import SWEBenchTask
-    from coding.schemas.context import Context
-    from coding.datasets.swefull import SWEFullDataset
+    # from coding.tasks.swe import SWEBenchTask
+    # from coding.schemas.context import Context
+    # from coding.datasets.swefull import SWEFullDataset
 
-    dataset = SWEFullDataset()
-    context_dict = dataset.get(n=1)
-    context = Context(**context_dict)
-    task = SWEBenchTask(llm=None, context=context, use_remote=False)
+    # dataset = SWEFullDataset()
+    # context_dict = dataset.get(n=1)
+    # context = Context(**context_dict)
+    # task = SWEBenchTask(llm=None, context=context, use_remote=False)
 
     load_dotenv()
 
@@ -58,8 +55,8 @@ if __name__ == "__main__":
     # with open(f"./problems/task_{task.row['instance_id']}.pkl", "wb") as f:
     #     pkl.dump(task, f)
 
-    # with open("./problems/task_django__django-11239.pkl", "rb") as f:
-    #     task = pkl.load(f)
+    with open("./problems/task_django__django-11239.pkl", "rb") as f:
+        task = pkl.load(f)
 
     swe = SWE()
     response = swe(repo_location=task.repo.path, issue_description=task.query)

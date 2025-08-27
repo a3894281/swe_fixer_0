@@ -13,6 +13,8 @@ class AgentConfig:
     # The default settings are the bare minimum to run the agent. Take a look at the config files for improved settings.
     system_template: str = """
 You are a helpful assistant that can interact multiple times with a computer shell to solve programming tasks.
+- Use reasoning_effort: low
+
 Your response must contain exactly ONE bash code block with ONE command (or commands connected with && or ||).
 
 Include a THOUGHT section before your command where you explain your reasoning process.
@@ -219,8 +221,7 @@ Here are some thoughts about why you want to perform the action.
 If you have completed your assignment, please consult the first message about how to
 submit your solution (you will not be able to continue working on this task after that)."""
 
-    step_limit: int = 250
-    cost_limit: float = 3.0
+    step_limit: int = 20
 
 
 class NonTerminatingException(Exception):
@@ -298,9 +299,7 @@ class DefaultAgent:
 
     def query(self) -> dict:
         """Query the model and return the response."""
-        n_calls = getattr(self.model, "n_calls", 0)
-        cost = getattr(self.model, "cost", 0.0)
-        if 0 < self.config.step_limit <= n_calls or 0 < self.config.cost_limit <= cost:
+        if 0 < self.config.step_limit <= self.model.n_calls:
             raise LimitsExceeded()
         response = self.model.query(self.messages)
         self.add_message("assistant", **response)
@@ -360,7 +359,7 @@ class DefaultAgent:
             final_output = "".join(lines[1:])
             raise Submitted(final_output)
 
-    def create_diff(self, repo_location: str) -> str:
+    def create_diff(self) -> str:
         command = "git diff"
         try:
             output = self.env.execute(command)

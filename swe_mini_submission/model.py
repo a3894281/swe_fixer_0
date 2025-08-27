@@ -6,7 +6,6 @@ class ModelAdapter:
 
     def __init__(self, llm_client: LLMClient, model_name: str):
         self.llm_client = llm_client
-        self.cost = 0.0
         self.n_calls = 0
         self.model_name = model_name
 
@@ -29,9 +28,8 @@ class ModelAdapter:
         prompt = "\n\n".join(prompt_parts)
 
         try:
-            response, tokens = self.llm_client(prompt, self.model_name, 0.0)
+            response, _ = self.llm_client(prompt, self.model_name, 0.0)
             self.n_calls += 1
-            self.cost += tokens * 0.00001
 
             return {"content": response or ""}
         except Exception as e:
