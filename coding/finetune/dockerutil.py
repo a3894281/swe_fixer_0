@@ -11,7 +11,7 @@ from coding.constants import COMPETITION_ID
 from ..helpers.git import GitRepo
 
 
-def exec_container_with_timeout(container, command, timeout):
+def exec_container_with_timeout(container, command, timeout, log_file: str = None):
     """
     Executes a command in a Docker container with a timeout.
 
@@ -42,6 +42,9 @@ def exec_container_with_timeout(container, command, timeout):
                     break
                 logs += chunk
                 # print(f"\033[1;36m[{container.name}]\033[0m {chunk.decode('utf-8', errors='replace')}", end='', flush=True)
+                if log_file:
+                    with open(log_file, "a") as f:
+                        f.write(chunk.decode('utf-8', errors='replace'))
         except Exception as e:
             exception = e
 
@@ -218,7 +221,9 @@ def run_docker_container_from_base(
     client,
     remote_host_url: str | None = None,
     api_key: str = "",
-    volumes: dict = {}
+    volumes: dict = {},
+    log_file: str = None,
+    timeout: int = 1200
 ) -> dict:
     """
     Runs a Docker container for evaluating model logic.
@@ -269,6 +274,13 @@ def run_docker_container_from_base(
                 os.system(f"cp -r {item} {dest_dir}")
 
         try:
+            # try and pull the image
+            try:
+                client.images.pull(image_name)
+            except docker.errors.APIError as e:
+                print(f"Error pulling image: {str(e)}")
+                
+
             # Remove any existing container with the same name
             try:
                 existing = client.containers.get(container_name)
@@ -316,7 +328,7 @@ def run_docker_container_from_base(
 
             # Execute runner.py in container
             exec_result, logs = exec_container_with_timeout(
-                container, "python3 -u /app/code/runner.py", 1200
+                container, "python3 -u /app/code/runner.py", timeout, log_file=log_file
             )
             logs = logs.decode("utf-8")
             # print(f"===== CONTAINER {container_name} LOGS =====")
@@ -341,7 +353,9 @@ def run_docker_container_from_base(
                         # Fall back to safely evaluating as literal Python dict
                         diff_dict = ast.literal_eval(line.replace("Diff:", "").strip())
                         return diff_dict
-            
+            # print(f"===== CONTAINER {container_name} LOGS =====")
+            # print(logs)
+            # print(f"===== END OF CONTAINER {container_name} LOGS =====")
             # If we get here, neither Patch nor Diff was found
             raise ValueError("No Patch or Diff found in container logs")
 
