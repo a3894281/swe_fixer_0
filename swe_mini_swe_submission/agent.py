@@ -276,9 +276,14 @@ class DefaultAgent:
         self.messages = []
         self.add_message("system", self.render_template(self.config.system_template))
         self.add_message("user", self.render_template(self.config.instance_template))
+
+        step = 0
         while True:
             try:
                 self.step()
+                step += 1
+                if step > 30:
+                    raise TerminatingException("Step limit exceeded")
             except NonTerminatingException as e:
                 self.add_message("user", str(e))
             except TerminatingException as e:

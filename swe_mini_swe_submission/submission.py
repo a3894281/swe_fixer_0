@@ -41,7 +41,7 @@ class SWE(SWEBase):
 # Enhanced testing section
 if __name__ == "__main__":
     from dotenv import load_dotenv
-    import pickle as pkl
+    # import pickle as pkl
 
     from coding.tasks.swe import SWEBenchTask
     from coding.schemas.context import Context

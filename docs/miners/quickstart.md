@@ -74,6 +74,10 @@ In order to run on testnet, you will need to go through the same hotkey registra
 To run:
 
 ```bash
+python neurons/miner.py --netuid 45  --subtensor.network finney --wallet.name ds --wallet.hotkey ds --axon.port 8091 --logging.debug --miner.name ds
+```
+
+```bash
 pm2 start neurons/miner.py --interpreter python3 --name miner -- --netuid 171  --subtensor.network test --wallet.name test_coldkey --wallet.hotkey test_hotkey --neuron.model_id gpt4 --axon.port 8091 --logging.debug --miner.name openai
 ```
 
