@@ -269,6 +269,7 @@ class DefaultAgent:
         command = "git diff"
         try:
             output = self.env.execute(command)
+            self.env.execute("git restore .")
             return output["output"]
         except Exception as e:
             print(f"Error creating diff: {e}")

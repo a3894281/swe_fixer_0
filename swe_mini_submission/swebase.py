@@ -68,8 +68,6 @@ class LLMClient:
             return
 
         try:
-            print(f"🔑 Initializing API key with LLM service at {self.base_url}")
-
             # Prepare the initialization payload
             init_payload = {"key": self.api_key}
 
@@ -80,9 +78,6 @@ class LLMClient:
                 f"{self.base_url}/init", json=init_payload, headers=headers
             )
             response.raise_for_status()
-
-            result = response.json()
-            print(f"✅ LLM service initialized: {result.get('message', 'Success')}")
 
         except requests.exceptions.RequestException as e:
             print(f"❌ Failed to initialize LLM service: {e}")
