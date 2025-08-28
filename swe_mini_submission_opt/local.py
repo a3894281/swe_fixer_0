@@ -30,9 +30,9 @@ class LocalEnvironment:
         """Execute a command in the local environment and return the result as a dict."""
         cwd = cwd or self.config.cwd or os.getcwd()
         result = subprocess.run(
-            # ["bash", "-c", command],
-            command,
-            shell=True,  # remove this for debug
+            ["bash", "-c", command],
+            # command,
+            # shell=True,  # remove this for debug
             text=True,
             cwd=cwd,
             env=os.environ | self.config.env,

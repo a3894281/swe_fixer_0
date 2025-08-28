@@ -26,7 +26,7 @@ class SWE(SWEBase):
             agent = DefaultAgent(model, env)
 
             # Run the agent
-            tokens = agent.run(issue_description)
+            agent.run(issue_description)
 
             # Create patch from the repository changes
             diff = agent.create_diff()
@@ -35,7 +35,7 @@ class SWE(SWEBase):
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             agent.save_trajectory(Path(f"./trajectories/trajectory_{timestamp}.json"))
 
-            return diff, tokens
+            return diff
 
         except Exception as e:
             print(f"❌ Error: {e}")
@@ -48,6 +48,7 @@ if __name__ == "__main__":
     from coding.tasks.swe import SWEBenchTask
     from coding.schemas.context import Context
     from coding.datasets.swefull import SWEFullDataset
+    import pickle as pkl
 
     load_dotenv()
 
@@ -55,6 +56,10 @@ if __name__ == "__main__":
     context_dict = dataset.get(n=1)
     context = Context(**context_dict)
     task = SWEBenchTask(llm=None, context=context, use_remote=False)
+
+    print(f"Task: {task.row['instance_id']}")
+    with open(f"./problems/task_{task.row['instance_id']}.pkl", "wb") as f:
+        pkl.dump(task, f)
 
     swe = SWE()
     response = swe(repo_location=task.repo.path, issue_description=task.query)

@@ -170,7 +170,7 @@ class DefaultAgent:
     def add_message(self, content: str):
         self.messages.append(content)
 
-    def run(self, task: str) -> int:
+    def run(self, task: str):
         """Run step() until agent is finished. Return exit status & message"""
         self.extra_template_vars |= {"task": task}
         self.messages = []
@@ -184,7 +184,7 @@ class DefaultAgent:
                 self.add_message(f"[ERROR] {str(e)}")
             except TerminatingException as e:
                 self.add_message(f"[ERROR] {str(e)}")
-                return self.model.tokens
+                return 
 
     def step(self) -> dict:
         """Query the LM, execute the action, return the observation."""
