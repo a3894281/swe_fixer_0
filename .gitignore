@@ -1,6 +1,7 @@
 .reference/
 .temp/
 problems/
+trajectories/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
