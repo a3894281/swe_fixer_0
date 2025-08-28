@@ -507,6 +507,11 @@ WORKDIR /testbed/
     #         bt.logging.warning(f"Failed to remove Docker image: {e}")
 
     def score(self, patch: Patch | str):
+        client = (
+                self.docker_server._local_client
+                if not self.use_remote or not self.docker_server.remote
+                else self.docker_server._remote_client
+            )
         try:
             changed_files = patch_to_changed_files(patch, self.repo.path) if isinstance(patch, Patch) else git_diff_to_changed_files(patch, self.repo.path)
             if any("test" in file.file_name for file in changed_files.files):
@@ -514,16 +519,12 @@ WORKDIR /testbed/
                 print("Miner is not allowed to touch test files, returning a score of 0")
                 return 0
             if isinstance(patch, str):
-                return score_patch(patch, self.repo, self.row, self.docker_server._local_client, self.image_name)
+                return score_patch(patch, self.repo, self.row, client, self.image_name)
             changed_files.files = [
                 file for file in changed_files.files if "test" not in file.file_name
             ]
             diff = create_diff(changed_files.files)
-            client = (
-                self.docker_server._local_client
-                if not self.use_remote or not self.docker_server.remote
-                else self.docker_server._remote_client
-            )
+            
             return score_patch(diff, self.repo, self.row, client, self.image_name)
         except Exception as e:
             print("There was an error scoring the patch: ", e)

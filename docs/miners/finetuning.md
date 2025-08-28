@@ -60,7 +60,7 @@ You will also have access to the following embedding models:
 You can use the models by calling the `llm` property of the `SWEBase` class. For example:
 
 ```python
-from coding.finetune.swe-server.swebase import SWEBase
+from swebase import SWEBase
 
 swe = SWEBase()
 response, tokens = swe.llm("gpt-4o", "What is the capital of France?")

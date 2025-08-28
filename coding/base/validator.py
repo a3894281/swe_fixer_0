@@ -98,7 +98,10 @@ class BaseValidatorNeuron(BaseNeuron):
                 )
             except Exception as e:
                 bt.logging.error(f"Failed to serve Axon with exception: {e}")
-
+            try:
+                self.axon.start()
+            except Exception as e:
+                bt.logging.error(f"Failed to start Axon with exception: {e}")
         except Exception as e:
             bt.logging.error(f"Failed to create Axon initialize with exception: {e}")
 
@@ -130,22 +133,28 @@ class BaseValidatorNeuron(BaseNeuron):
             bt.logging.error("Error while syncing, killing self to restart", str(e))
             bt.logging.debug(print_exception(type(e), e, e.__traceback__))
             sys.exit(1)
-        if not self.config.neuron.axon_off:
-            try:
-                bt.logging.info(
-                    f"Running validator {self.axon} on network: {self.config.subtensor.chain_endpoint} with netuid: {self.config.netuid}"
-                )
-                # serve the axon
-                self.axon.serve(netuid=self.config.netuid, subtensor=self.subtensor)
-                self.axon.start()
-            except Exception as e:
-                bt.logging.error(
-                    f"Failed to serve and then start Axon with exception: {e}"
-                )
-        else:
-            bt.logging.info(
-                f"Running validator on network: {self.config.subtensor.chain_endpoint} with netuid: {self.config.netuid}"
-            )
+        # if not self.config.neuron.axon_off:
+        #     try:
+        #         bt.logging.info(
+        #             f"Running validator {self.axon} on network: {self.config.subtensor.chain_endpoint} with netuid: {self.config.netuid}"
+        #         )
+        #         try:
+        #             # serve the axon
+        #             self.axon.serve(netuid=self.config.netuid, subtensor=self.subtensor)
+        #         except Exception as e:
+        #             bt.logging.error(f"Failed to serve Axon with exception: {e}")
+        #         try:
+        #             self.axon.start()
+        #         except Exception as e:
+        #             bt.logging.error(f"Failed to start Axon with exception: {e}")
+        #     except Exception as e:
+        #         bt.logging.error(
+        #             f"Failed to serve and then start Axon with exception: {e}"
+        #         )
+        # else:
+        #     bt.logging.info(
+        #         f"Running validator on network: {self.config.subtensor.chain_endpoint} with netuid: {self.config.netuid}"
+        #     )
 
         bt.logging.info(f"Validator starting at block: {self.block}")
 
@@ -354,11 +363,16 @@ class BaseValidatorNeuron(BaseNeuron):
         # Update the hotkeys.
         self.hotkeys = copy.deepcopy(self.metagraph.hotkeys)
 
-    def update_scores(self):
+    async def update_scores(self):
         """Performs exponential moving average on the scores based on the rewards received from the miners."""
+        bt.logging.info(f"update_scores()")
         if self.config.neuron.audit:
-            tracked_scores = gather_scores(self)
-        
+            tracked_scores = await gather_scores(self)
+        if self.config.neuron.audit:
+            bt.logging.info("Audit was set, using tracked scores")
+            # Temporary override to use tracked scores for audit
+            self.scores = np.array(tracked_scores)
+            return
         if not self.finetune_results:
             if self.config.neuron.audit:    
                 self.scores = np.array(tracked_scores)
@@ -369,42 +383,64 @@ class BaseValidatorNeuron(BaseNeuron):
         )
         finetune_scores = np.zeros(self.metagraph.n)
         max_score = max(self.finetune_results[latest_competition_id].trackers, key=lambda x: x.score).score
-        # group the trackers by if theyre not the same logic. only do this for trackers that have the max score
-        tracker_groups = {}
         for tracker in self.finetune_results[latest_competition_id].trackers:
-            finetune_scores[tracker.uid] = tracker.score
-            if tracker.score != max_score:
-                continue
-            # Convert dict to tuple of sorted items for hashing
-            logic_key = tuple(sorted(tracker.logic.items()))
-            if logic_key not in tracker_groups:
-                tracker_groups[logic_key] = []
-            tracker_groups[logic_key].append(tracker)
-        # Calculate how many trackers to select from each group
-        trackers_per_group = 10 // len(tracker_groups)
-        remainder = 10 % len(tracker_groups)
+            print(f"tracker {tracker.uid} has score {tracker.score}")
+        # find the number of trackers that have the max score
+        num_max_score_trackers = sum(1 for tracker in self.finetune_results[latest_competition_id].trackers if tracker.score == max_score)
+        if num_max_score_trackers <= 10:
+            # Sort trackers by score in descending order and take top 10
+            sorted_trackers = sorted(
+                self.finetune_results[latest_competition_id].trackers,
+                key=lambda x: x.score,
+                reverse=True
+            )
+            top_10_trackers = sorted_trackers[:10]
+            
+            # Set scores for top 10 trackers, rest get 0
+            top_10_uids = {tracker.uid for tracker in top_10_trackers}
+            for tracker in self.finetune_results[latest_competition_id].trackers:
+                if tracker.uid in top_10_uids:
+                    finetune_scores[tracker.uid] = tracker.score
+                else:
+                    finetune_scores[tracker.uid] = 0
+        else:
+            # group the trackers by if theyre not the same logic. only do this for trackers that have the max score
+            tracker_groups = {}
+            for tracker in self.finetune_results[latest_competition_id].trackers:
+                finetune_scores[tracker.uid] = tracker.score
+                if tracker.score != max_score:
+                    continue
+                # Convert dict to tuple of sorted items for hashing
+                logic_key = tuple(sorted(tracker.logic.items()))
+                if logic_key not in tracker_groups:
+                    tracker_groups[logic_key] = []
+                tracker_groups[logic_key].append(tracker)
+            
+            # Calculate how many trackers to select from each group
+            trackers_per_group = 10 // len(tracker_groups)
+            remainder = 10 % len(tracker_groups)
 
-        # Select trackers from each group
-        selected_trackers = []
-        not_selected_trackers = []
-        for group_trackers in tracker_groups.values():
-            # Get number of trackers to select from this group (including remainder distribution)
-            n_select = trackers_per_group
-            if remainder > 0:
-                n_select += 1
-                remainder -= 1
-                
-            # Randomly select trackers from group
-            group_selected = group_trackers[:n_select] if len(group_trackers) >= n_select else group_trackers
-            selected_trackers.extend(group_selected)
-            not_selected_trackers.extend(group_trackers[n_select:])
-        # Set scores for selected trackers
-        for tracker in selected_trackers:
-            finetune_scores[tracker.uid] = max_score
-        
-        # set scores for not selected trackers to a slighly lower score
-        for tracker in not_selected_trackers:
-            finetune_scores[tracker.uid] = tracker.score - 0.01
+            # Select trackers from each group
+            selected_trackers = []
+            not_selected_trackers = []
+            for group_trackers in tracker_groups.values():
+                # Get number of trackers to select from this group (including remainder distribution)
+                n_select = trackers_per_group
+                if remainder > 0:
+                    n_select += 1
+                    remainder -= 1
+                    
+                # Randomly select trackers from group
+                group_selected = group_trackers[:n_select] if len(group_trackers) >= n_select else group_trackers
+                selected_trackers.extend(group_selected)
+                not_selected_trackers.extend(group_trackers[n_select:])
+            # Set scores for selected trackers
+            for tracker in selected_trackers:
+                finetune_scores[tracker.uid] = max_score
+            
+            # set scores for not selected trackers to a slighly lower score
+            for tracker in not_selected_trackers:
+                finetune_scores[tracker.uid] = tracker.score - 0.01
         
 
         threshold = max_score - 0.17  # within 0.18 of max score
